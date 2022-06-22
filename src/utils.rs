@@ -5,13 +5,16 @@ use chacha20::cipher::{KeyIvInit, StreamCipher};
 
 pub fn send(key: &[u8], data: &[u8], stream: &mut TcpStream) -> std::io::Result<()> {
     let nonce: [u8; 12] = rand::random();
+    stream.write_all(&nonce)?;
+    // generate and send nonce
+
     let mut cipher = ChaCha20::new(key.into(), &nonce.into());
     let mut buffer = data.to_vec();
     cipher.apply_keystream(&mut buffer);
-
-    stream.write_all(&nonce)?;
     stream.write_all(&buffer.len().to_be_bytes())?;
     stream.write_all(&buffer)?;
+    // cipher buffer and send (length + self)
+
     Ok(())
 }
 
