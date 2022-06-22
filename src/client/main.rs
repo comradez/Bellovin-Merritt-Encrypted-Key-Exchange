@@ -1,11 +1,9 @@
-use std::io::Write;
+extern crate core;
+
 use std::net::TcpStream;
-use rsa::{PublicKey, RsaPublicKey, RsaPrivateKey};
-use rsa::pkcs8::{LineEnding, EncodePublicKey};
-use chacha20::{ChaCha20};
-use chacha20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
-use rand::random;
-use rsa::pkcs8::der::Document;
+use rsa::{RsaPublicKey, RsaPrivateKey, PaddingScheme};
+use rsa::pkcs8::EncodePublicKey;
+use utils::{send, recv};
 
 const KEY: [u8; 32] = [
     0x74u8, 0xa8u8, 0x25u8, 0xaeu8,
@@ -20,32 +18,41 @@ const KEY: [u8; 32] = [
 
 fn main() -> std::io::Result<()> {
 
+    let mut rng = rand::thread_rng();
     let mut stream = TcpStream::connect("127.0.0.1:7230")?;
-    println!("Connected to server on local port 7230...");
+    println!("Connected to server on 127.0.0.1:7230.");
 
     // Phase 1
-    let mut rng = rand::thread_rng();
-    // random generator
-
-    let bits = 2048;
-    let private_key = RsaPrivateKey::new(&mut rng, bits).unwrap();
+    let private_key = RsaPrivateKey::new(&mut rng, 2048).unwrap();
     let public_key = RsaPublicKey::from(&private_key);
-    // generate public & private key
+    // generate (D_A, E_A)
 
-    let nonce: [u8; 12] = random();
-    let mut cipher = ChaCha20::new(&KEY.into(), &nonce.into());
-    let mut buffer = public_key
-        .to_public_key_der()
-        .unwrap()
-        .as_ref()
-        .to_vec();
-    cipher.apply_keystream(&mut buffer);
-    // cipher with ChaCha20 stream cipher
+    let message = public_key.to_public_key_der().unwrap();
+    send(KEY.as_ref(), message.as_ref(), &mut stream)?;
+    println!("Public key sent to 127.0.0.1:7230.");
+    // send P(E_A) to server
 
-    stream.write_all(&nonce)?;
-    stream.write_all(&buffer.len().to_le_bytes())?;
-    stream.write_all(&buffer)?;
-    // send to server
+    // Phase 2
+    let encrypted = recv(KEY.as_ref(), &mut stream)?;
+    let padding = PaddingScheme::new_oaep::<sha2::Sha256>();
+    let secret_key = private_key.decrypt(padding, encrypted.as_ref()).unwrap();
+    println!("Secret key received from 127.0.0.1:7230.");
+    // receive P(E_A(R)) from server and decrypt to obtain R
 
+    // Phase 3
+    let challenge1: [u8; 32] = rand::random();
+    send(secret_key.as_ref(), challenge1.as_ref(), &mut stream)?;
+    println!("Challenge A sent to 127.0.0.1:7230");
+    // generate challenge_A, send R(challenge_A) to server
+
+    // Phase 5
+    let challenge_recv = recv(secret_key.as_ref(), &mut stream)?;
+    if &challenge_recv[0 .. 32] == &challenge1 {
+        let challenge2 = &challenge_recv[32 .. 64];
+        send(secret_key.as_ref(), challenge2, &mut stream)?;
+        println!("Login successful.");
+    } else {
+        panic!("Challenge A illegal.");
+    }
     Ok(())
 }

@@ -11,9 +11,14 @@ path = "src/client/main.rs"
 name = "server"
 path = "src/server/main.rs"
 
+[lib]
+name = "utils"
+path = "src/utils.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 rsa = "0.6.1"
 rand = "0.8.5"
 chacha20 = "0.9.0"
+sha2 = "0.10.2"
